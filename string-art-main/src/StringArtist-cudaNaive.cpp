@@ -1,17 +1,39 @@
-
-#pragma GCC target("ssse3")
 #include "StringArtist.h"
-#include <stdalign.h>
+#include <immintrin.h>
 #include <iostream>
 #include "BresenhamLineIterator.h"
 #include <chrono>
-#include <immintrin.h>
-#include <smmintrin.h>
+#include <cuda.h>
+#include <cmath>
+#include <cuda_runtime.h>
+#include <driver_functions.h>
+#define BLOCK_SIZE 16
+
+/** 
+ * @brief check CUDA call for errors and exit on failure
+ * @param call the CUDA call to check
+ * 
+ * @copyright 2025 Fabio Tosi, Alma Mater Studiorum - Università di Bologna
+ * 
+ */
+
+#define CHECK(call)                                                         \
+{                                                                           \
+    const cudaError_t error = call;                                         \
+    if (error != cudaSuccess) {                                             \
+        fprintf(stderr, "CUDA Error: %s:%d, code: %d, reason: %s\n",        \
+                __FILE__, __LINE__, error, cudaGetErrorString(error));      \
+        std::exit(1);                                                       \
+    }                                                                       \
+}
 
 namespace {
     float CANVAS_LINE_OPACITY = 1.0f;
 }
 
+
+//Definire manualmente prima la dimensione del blocco (numero di thread per blocco).
+//Poi, calcolare automaticamente la dimensione della griglia in base ai dati e alla dimensione del blocco
 
 StringArtist::StringArtist(const Image& image, unsigned int numPins, float draftOpacity, float threshold, unsigned int skipped_neighbors, unsigned int scaleFactor) :
     m_imagePtr(&image),
@@ -22,41 +44,76 @@ StringArtist::StringArtist(const Image& image, unsigned int numPins, float draft
     m_scaleFactor(scaleFactor),
     m_iteration(0)
 {
-    //m_numPins -> num tot di chiodi 
     m_canvas = StringArtImage(m_imagePtr->size() * m_scaleFactor, m_numPins);
     m_draft = StringArtImage(m_imagePtr->size(), m_numPins);
     m_adjacency.resize(m_imagePtr->size(), std::vector<bool>(m_imagePtr->size(), false));
+}
 
-    size_t imgSize = m_imagePtr->size();
-    //dim LUT = numCHIODI * numCHIODI
-    m_lineLUT.resize(m_numPins, std::vector<std::vector<unsigned int>>(m_numPins));
+struct PinPos {
+    int x, y;
+};
 
-    std::cout << "Generazione LUT delle linee..." << std::endl;
+__global__ void findNextPin_kernel (int currentPinId, unsigned char* image, 
+    unsigned char* d_draft, float* d_scores,int m_numPins , const PinPos* d_pins,
+    const bool* m_adjacency, int m_skippedNeighbors, int width)
+{
+    
+    int nextPinId = blockIdx.x * blockDim.x + threadIdx.x;
+    d_scores[nextPinId] = CUDART_INF_F;
 
-    for (size_t i = 0; i < m_numPins; ++i) {
-        for (size_t j = i + 1; j < m_numPins; ++j) {
-            
-            Point2D p1 = m_draft.getPin(i); //prendo un chiodo 
-            Point2D p2 = m_draft.getPin(j); //partedno dal chiodo adiacente vado avanti
+    int diff = nextPinId - currentPinId;
+    int dist = min(diff % m_numPins , -diff % m_numPins);
 
-            //prendo i pixel tra questi 2 chiodi
-            for (const Point2D& pixel : BresenhamLineIterator(p1, p2)) {
-                //il pixel è rappresentato da linearIndex
-                unsigned int linearIndex = pixel[1] * imgSize + pixel[0];
-                //metto dentro la tabella con chiodi i e j  il linearIndex
-                m_lineLUT[i][j].push_back(linearIndex);
-                //push_back ->
+    if (nextPinId>=m_numPins || dist < m_skippedNeighbors 
+        || m_adjacency[currentPinId * m_numPins + nextPinId]) return;
+    
 
-                //per ogni linea io avrò anche il num di pixel
-            }
+    unsigned int pixelChanged = 0;
+    float score = 0.0f;
+    int currentPin_x = d_pins[currentPinId].x;
+    int currentPin_y = d_pins[currentPinId].y;
 
-            //siccome è una linea è uguale da una parte e dall'altra
-            m_lineLUT[j][i] = m_lineLUT[i][j];
+    int nextPin_x = d_pins[nextPinId].x; ;
+    int nextPin_y = d_pins[nextPinId].y;;
+
+    int diff_x = nextPin_x - currentPin_x;
+    int diff_y = nextPin_y - currentPin_y;
+
+    int distance = max(abs(diff_x), abs(diff_y));
+    int delta[2] = {abs(diff_x), abs(diff_y)};
+    int id = abs(diff_x) >= abs(diff_y) ? 0 : 1;
+    
+    int increment[2];
+    increment[id] = delta[id] >= 0 ? 1 : -1;
+    increment[1 - id] = delta[1 - id] >= 0 ? 1 : -1;
+
+    
+    int error = 2 * delta[1 - id] - delta[id];
+    int currentPin_xy[2] = {currentPin_x, currentPin_y};
+
+    //posso anche usare delta perchè è la distanza e mi dice il num di pixel
+    while (nextPin_x != currentPin_xy[0] && nextPin_y != currentPin_xy[1] ) {
+
+        int pixel= currentPin_xy[1] * width + currentPin_xy[0];
+        score += (float) image[pixel] + (255 - d_draft[pixel]);
+        ++pixelChanged;
+        
+        currentPin_xy[id] += increment[id];
+
+        if (error > 0)
+        {   //  x = x + xi
+            currentPin_xy[1 - id] += increment[1 - id];
+            error -= 2 * delta[id]; //aggiorno errore
         }
+        // per capire a pros pixel quanto mi sto allontanando dalla linea vera
+        error += 2 * delta[1 - id]; 
+    }
+   
+    if (pixelChanged > 0)
+    {
+            d_scores[nextPinId]  = score/ (float) distance;
     }
 
-    //cosi ho tutte le linee che posso collegare a 0, quelle che possono collegare a 1 , eccc
-    //e la tabella ha i pixel di ogni linea possibile già salvatiiiii
 }
 
 
@@ -65,161 +122,96 @@ void StringArtist::windString()
 {
     // Wind thread around pins until image can't be improved.
     size_t currentPinId = 0;
+    size_t device_currentPinId = 0;
     std::cout << "start winding" << std::endl;
-
 
     auto start = std::chrono::high_resolution_clock::now();
 
+    int w = m_imagePtr->width() ;
+    size_t img_size = m_imagePtr->size();
+    unsigned char *image, *d_draft;
+    const bool* d_adjacency ;
+    float *d_scores;
+    PinPos *d_pins;
+
+    CHECK(cudaMalloc(&d_draft, img_size));
+    CHECK(cudaMalloc(&image, img_size));
+    CHECK(cudaMalloc(&d_adjacency, m_numPins * m_numPins * sizeof(bool)));
+    CHECK(cudaMalloc(&d_scores, m_numPins * sizeof(float)));
+    CHECK(cudaMalloc(&d_pins, m_numPins * sizeof(PinPos)));
+    
+    std::vector<PinPos> h_pins(m_numPins);
+    for(int i=0; i<m_numPins; ++i) {
+        auto p = m_draft.getPin(i);
+        h_pins[i] = { (int)p[0], (int)p[1] };
+    }
+
+    dim3 blockSize(BLOCK_SIZE, BLOCK_SIZE);
+    dim3 gridSize((m_numPins + blockSize.x - 1) / blockSize.x,
+                  (m_numPins + blockSize.y - 1) / blockSize.y);
+
+    CHECK(cudaMemcpy(d_pins, h_pins.data() , m_numPins * sizeof(PinPos), cudaMemcpyHostToDevice));
+    CHECK(cudaMemcpy(image, m_imagePtr->getFirstPixelPointer() , img_size , cudaMemcpyHostToDevice));
+    CHECK(cudaMemset(d_adjacency, 0 ,  m_numPins * m_numPins * sizeof(bool)));
+    
+    float* h_scores = (float*)malloc(sizeof(float) * m_numPins);
+    float bestScore = std::numeric_limits<float>::infinity();
+    int bestPin = -1;
+    
 
     while (true)
     {
         size_t nextPinId;
-        if (!findNextPin(currentPinId, nextPinId))
-            break;
+        bestPin = -1;
+        bestScore = std::numeric_limits<float>::infinity();
 
+        CHECK(cudaMemcpy(d_draft, m_draft.getFirstPixelPointer() , m_imagePtr->size(), cudaMemcpyHostToDevice));
 
-        m_iteration++;
-        //std::cout << m_iteration << std::endl;
-        drawLine(m_draft, currentPinId, nextPinId, m_draftOpacity);
-        drawLine(m_canvas, currentPinId, nextPinId, CANVAS_LINE_OPACITY);
+        findNextPin_kernel<<<gridSize, blockSize>>>
+            (currentPinId, image, d_draft, d_scores, m_numPins ,  d_pins,
+                  d_adjacency,  m_skippedNeighbors, w);
 
+        CHECK(cudaDeviceSynchronize());
+        CHECK(cudaMemcpy(h_scores, d_scores, m_numPins * sizeof(float), cudaMemcpyDeviceToHost));
 
-        m_adjacency[currentPinId][nextPinId] = true;
-        m_adjacency[nextPinId][currentPinId] = true;
-        currentPinId = nextPinId;
-    }
-    auto end = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> diff = end - start;
-
-
-    std::cout << "Done after "<< m_iteration << " iterations" << std::endl;
-    std::cout << "Tempo di esecuzione CPU: " << diff.count() << " secondi" << std::endl;
-}
-
-
-bool StringArtist::findNextPin(const size_t currentPinId, size_t& bestPinId) const
-{
-    float bestScore = std::numeric_limits<float>::infinity();
-
-
-    for (size_t nextPinId = 0; nextPinId < m_numPins; ++nextPinId)
-    {
-        //skippa i chiodi che sono troppo vicino a quello attuale 
-        //skippa i chiodi dove ho già teso un filo
-        int diff = static_cast<int>(nextPinId) - static_cast<int>(currentPinId);
-        int dist = std::min(diff % m_numPins, -diff % m_numPins);
-        if (dist < m_skippedNeighbors || m_adjacency[currentPinId][nextPinId])
-            continue;
-
-        unsigned int pixelChanged;
-
-        //simula una linea tra il chiodo attuale e quello potenziale
-        //carca la linea che passa sopra i pixel più scuri sull'imm origanlae che sono ancora scuri nel disegno
-        float score = lineScore(currentPinId, nextPinId, pixelChanged);
-       
-        //se lo score è più basso , sta coprendo zone scure
-        if (pixelChanged > 0 && score < bestScore)
+        for(int i=0; i<m_numPins; i++)
         {
-            bestScore = score;
-            bestPinId = nextPinId;
-        }
-    }
-
-    //restituisce true se ha trovaoto una linea abbastanza buona da essere tracciata
-    return bestScore < m_threshold;
-}
-
-
-static inline float funzSIMD(__m128i orig, __m128i draft)
-{
-    __m128i zero = _mm_setzero_si128();
-
-    __m128i s0 = _mm_sad_epu8(orig, zero); // 2 numeri che sono la somma degli altri valori
-    __m128i s1 = _mm_sad_epu8(draft, zero);
-
-    __m128i res = _mm_add_epi64(s0, s1); //ho 2 elementi da 64 che sono la somma di s0 e s1
-
-
-    uint64_t el_hi=_mm_extract_epi64 (res, 0);
-    uint64_t el_lo=_mm_extract_epi64 (res, 1);
-
-    return (float) (el_hi+el_lo);
-    //__m128i high_part = _mm_unpackhi_epi64(res, res); 
-    //__m128i totalsum = _mm_add_epi64(res, high_part);
-
-}
-
-float StringArtist::lineScore(size_t p1, size_t p2, unsigned int& pixelChanged) const {
-    const std::vector<unsigned int>& indices = m_lineLUT[p1][p2];
-    size_t length = indices.size();
-    pixelChanged=indices.size();
-    
-    // Accesso diretto ai dati grezzi
-    const uint8_t* raw_orig = m_imagePtr->getFirstPixelPointer();
-    const uint8_t* raw_draft = m_draft.getFirstPixelPointer();
-
-    float score = 0.0f;
-    __m128i v_255 = _mm_set1_epi8((unsigned char)255);
-    
-    alignas(16) uint8_t b_orig[16];
-    alignas(16) uint8_t b_draft[16];
-
-    size_t k = 0;
-    for (; k + 15 < indices.size(); k += 16) {
-        
-        for (int m = 0; m < 16; ++m) {
-            unsigned int idx = indices[k + m];
-            b_orig[m] = raw_orig[idx];
-            b_draft[m] = raw_draft[idx];
-        }
-
-        __m128i v_orig = _mm_load_si128((__m128i*)b_orig);
-        __m128i v_draft = _mm_load_si128((__m128i*)b_draft);
-        __m128i v_draft_inv = _mm_subs_epu8(v_255, v_draft);
-
-        score += funzSIMD(v_orig, v_draft_inv);
-    }
-    
-    if ((length-k) > 0)
-       {
-         for (int j=(length-k); j<16; j++)
-         { 
-            b_orig[j]=0;
-            b_draft[j]=0;
-         }
-         __m128i orig = _mm_load_si128((const __m128i*)b_orig);
-        __m128i draft = _mm_load_si128((const __m128i*)b_draft);
-        __m128i v_draft_inv = _mm_subs_epu8(v_255, draft);
-
-         score += funzSIMD(orig, v_draft_inv);
-       }
-
-    /*size_t rem = length - k; // Quanti pixel mancano alla fine?
-    if (rem > 0) {
-        for (size_t j = 0; j < 16; j++) {
-            if (j < rem) {
-                unsigned int idx = indices[k + j];
-                b_orig[j] = raw_orig[idx];
-                b_draft[j] = raw_draft[idx];
-            } else {
-                // Riempio di zeri i posti vuoti
-                b_orig[j] = 0;
-                b_draft[j] = 255; // ATTENZIONE: metto 255 così (255-255) fa 0 nell'inversione
+            if(h_scores[i] < bestScore)
+            {
+                bestScore=h_scores[i];
+                bestPin= i;
             }
         }
         
-        __m128i v_orig = _mm_load_si128((__m128i*)b_orig);
-        __m128i v_draft = _mm_load_si128((__m128i*)b_draft);
-        __m128i v_draft_inv = _mm_subs_epu8(v_255, v_draft);
-        
-        score += funzSIMD(v_orig, v_draft_inv);
-    }
 
-*/
-    // 3. Ritorna lo score diviso per la lunghezza reale
-    return score / (float)length;
+        if (bestScore >= m_threshold || bestPin==-1) break;
+
+        m_iteration++;
+
+        //std::cout << m_iteration << std::endl;
+        drawLine(m_draft, currentPinId, bestPin, m_draftOpacity);
+        drawLine(m_canvas, currentPinId, bestPin, CANVAS_LINE_OPACITY);
+
+        CHECK(cudaMemcpy(&d_adjacency[currentPinId * m_numPins + bestPin], &val, sizeof(bool), cudaMemcpyHostToDevice));
+        CHECK(cudaMemcpy(&d_adjacency[bestPin * m_numPins + currentPinId], &val, sizeof(bool), cudaMemcpyHostToDevice));
+        //m_adjacency[currentPinId][bestPin] = true;
+        //m_adjacency[bestPin][currentPinId] = true;
+        currentPinId = bestPin;
+
+    }
+    free(h_scores);
+    cudaFree(d_image); cudaFree(d_draft); cudaFree(d_adjacency); cudaFree(d_scores); cudaFree(d_pins);
+
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> diff = end - start;
+
+    std::cout << "Done after "<< m_iteration << " iterations" << std::endl;
+    std::cout << "Tempo di esecuzione CPU: " << diff.count() << " secondi" << std::endl; 
 }
- 
+
+
+
+
 
 void StringArtist::drawLine(StringArtImage& image, const size_t currentPinId, const size_t nextPinId, const float opacity)
 {
@@ -234,11 +226,9 @@ void StringArtist::drawLine(StringArtImage& image, const size_t currentPinId, co
     }
 }
 
-
 void StringArtist::saveImage(std::FILE* outputFile)
 {
     std::fprintf(outputFile, "P5\n%ld %ld\n255\n", m_canvas.size(), m_canvas.size());
     std::fwrite(m_canvas.getFirstPixelPointer(), m_canvas.size(), m_canvas.size(), outputFile);
     std::fclose(outputFile);
 }
-
