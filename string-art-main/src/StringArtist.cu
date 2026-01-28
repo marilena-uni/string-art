@@ -55,11 +55,11 @@ struct PinPos {
 
 __global__ void findNextPin_kernel (int currentPinId, unsigned char* image, 
     unsigned char* d_draft, float* d_scores,int m_numPins , const PinPos* d_pins,
-    const bool* m_adjacency, int m_skippedNeighbors, int width)
+    bool* m_adjacency, int m_skippedNeighbors, int width)
 {
     
     int nextPinId = blockIdx.x * blockDim.x + threadIdx.x;
-    d_scores[nextPinId] = CUDART_INF_F;
+    d_scores[nextPinId] = 1e30f;
 
     int diff = nextPinId - currentPinId;
     int dist = min(diff % m_numPins , -diff % m_numPins);
@@ -127,10 +127,10 @@ void StringArtist::windString()
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    int w = m_imagePtr->width() ;
+    int w = static_cast<int>(std::sqrt(m_imagePtr->size()));
     size_t img_size = m_imagePtr->size();
     unsigned char *image, *d_draft;
-    const bool* d_adjacency ;
+    bool* d_adjacency ;
     float *d_scores;
     PinPos *d_pins;
 
@@ -187,7 +187,7 @@ void StringArtist::windString()
         if (bestScore >= m_threshold || bestPin==-1) break;
 
         m_iteration++;
-
+        bool* val;
         //std::cout << m_iteration << std::endl;
         drawLine(m_draft, currentPinId, bestPin, m_draftOpacity);
         drawLine(m_canvas, currentPinId, bestPin, CANVAS_LINE_OPACITY);
@@ -200,7 +200,7 @@ void StringArtist::windString()
 
     }
     free(h_scores);
-    cudaFree(d_image); cudaFree(d_draft); cudaFree(d_adjacency); cudaFree(d_scores); cudaFree(d_pins);
+    cudaFree(image); cudaFree(d_draft); cudaFree(d_adjacency); cudaFree(d_scores); cudaFree(d_pins);
 
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> diff = end - start;
