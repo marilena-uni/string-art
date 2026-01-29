@@ -15,7 +15,7 @@ public:
     void setPixelValue(const Point2D& pixel, unsigned char value);
     unsigned char getPixelValue(const Point2D& pixel) const;
     const unsigned char* getFirstPixelPointer() const;
-private:
+    private:
     std::vector<unsigned char> m_data;
     size_t m_imageSize;
 };

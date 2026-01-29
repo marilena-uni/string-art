@@ -78,7 +78,9 @@ int main(int argc, char *argv[])
 
     
     // actual art being done
-    StringArtist stringArtist = StringArtist(image, numPins, draftOpacity, threshold, skippedNeighbors, scaleFactor);
+    //StringArtist stringArtist = StringArtist(image, numPins, draftOpacity, threshold, skippedNeighbors, scaleFactor);
+    //StringArtist stringArtist = StringArtistSIMD(image, numPins, draftOpacity, threshold, skippedNeighbors, scaleFactor);
+    StringArtist stringArtist = StringArtistcudaNaive(image, numPins, draftOpacity, threshold, skippedNeighbors, scaleFactor);
     stringArtist.windString();
 
    
