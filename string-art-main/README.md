@@ -1,9 +1,8 @@
 # string-art
-A C++ implementation of an algorithm to generate photorealistic string art images. See my [blog post](https://gabrieleballetti.github.io/posts/2022-07-29-string-art/) for details and more examples.
+A C++, SIMD and CUDA implementation of an algorithm to generate photorealistic string art images.
+La String-Art è una tecnica di disegno che permette di ottenere immagini totalmente composte da linee rette. Per iniziare il procedimento, viene fornita in input un'immagine, sulla quale circonferenza vengono posizionati un numero di chiodi scelti dall'utente. A partire da questi chiodi, ne viene scelto uno casuale dal quale partiranno una serie di linee rette che lo collegheranno agli altri chiodi (esclusi quelli vicini). Tra tutte queste linee verrà scelta quella più scura, ovvero la linea che, una volta sovrapposta all'immagine originale, ha come somma dei valori dei pixel che la compongono il risultato più basso. In output si ottiene l'immagine creata attraverso questo algoritmo. 
+Il problema è stato scelto in quanto permetteva un ampio margine di miglioramento nel tempo di esecuzione; questo è dovuto all'algoritmo che, per ogni potenziale linea, deve determinare quali pixel attraversa. Fare questa iterazione sulla CPU, in maniera sequenziale, richiede molto tempo. 
 
- Algorithm animation |  Final result
-:-------------------------:|:-------------------------:
-![animation](img/ada.gif) |  ![alt text](img/ada_s1.png)
 
 ## Usage
 
@@ -30,18 +29,25 @@ The copy-paste-able version
 string_art input.pgm 256 0.2 255 32 8 output.pgm
 ```
 
-I used [ImageMagick](https://imagemagick.org/index.php) to perform the conversions to/from .pmg format, it is as easy as
-
+To convert the image from pmg to png (and viceversa)
 ```
-magick image.png image.pgm
+convert output.pgm -colorspace Gray output.png
 ```
 
-### Opacity and threshold
 
-Opacity and threshold affect the final black/white balance of the picture. Use the following image as a reference.
 
-![table](img/ada_table.png)
+## results C++
 
-## Some results
+![results](img/aec.png)
+
+## results SIMD
+
+![results](img/aec.png)
+
+## results Cuda Naive
+
+![results](img/aec.png)
+
+## results CUDA
 
 ![results](img/aec.png)
