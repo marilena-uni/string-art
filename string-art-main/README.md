@@ -1,12 +1,10 @@
-# string-art
-A C++, SIMD and CUDA implementation of an algorithm to generate photorealistic string art images.
+# String-art
+A C++, SIMD and CUDA implementation of an algorithm to generate photorealistic string art images.\\
 La String-Art è una tecnica di disegno che permette di ottenere immagini totalmente composte da linee rette. Per iniziare il procedimento, viene fornita in input un'immagine, sulla quale circonferenza vengono posizionati un numero di chiodi scelti dall'utente. A partire da questi chiodi, ne viene scelto uno casuale dal quale partiranno una serie di linee rette che lo collegheranno agli altri chiodi (esclusi quelli vicini). Tra tutte queste linee verrà scelta quella più scura, ovvero la linea che, una volta sovrapposta all'immagine originale, ha come somma dei valori dei pixel che la compongono il risultato più basso. In output si ottiene l'immagine creata attraverso questo algoritmo. 
 Il problema è stato scelto in quanto permetteva un ampio margine di miglioramento nel tempo di esecuzione; questo è dovuto all'algoritmo che, per ogni potenziale linea, deve determinare quali pixel attraversa. Fare questa iterazione sulla CPU, in maniera sequenziale, richiede molto tempo. 
 
 
 ## Usage
-
-To compile simply run `make`.
 
 The script can be run as
 
