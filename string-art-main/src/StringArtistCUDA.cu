@@ -34,7 +34,6 @@ namespace {
 
 //Definire manualmente prima la dimensione del blocco (numero di thread per blocco).
 //Poi, calcolare automaticamente la dimensione della griglia in base ai dati e alla dimensione del blocco
-
 StringArtist::StringArtist(const Image& image, unsigned int numPins, float draftOpacity, float threshold, unsigned int skipped_neighbors, unsigned int scaleFactor) :
     m_imagePtr(&image),
     m_numPins(numPins),
@@ -48,7 +47,6 @@ StringArtist::StringArtist(const Image& image, unsigned int numPins, float draft
     m_draft = StringArtImage(m_imagePtr->size(), m_numPins);
     m_adjacency.resize(m_imagePtr->size(), std::vector<bool>(m_imagePtr->size(), false));
 }
-
 
 struct alignas(8) PinPos {
     int x, y;
@@ -106,29 +104,21 @@ __global__ void drawLine_kernel(unsigned char* image, int currentPinId, int next
     int diff_x = nextPin_x - currentPin_x;
     int diff_y = nextPin_y - currentPin_y;
 
-    //how many pixels the line occupies (thread = distance)
     int distance = max(abs(diff_x), abs(diff_y));
-    
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
 
-    //every thread should be a pixel of the line to fill up
     if(tid <= distance){
-    float t=(float)tid / (float)distance;
-    //int pixel_x = currentPin_x + t* (nextPin_x-currentPin_x) ; 
-    //int pixel_y = currentPin_y + t* (nextPin_y-currentPin_y) ; 
+        float t=(float)tid / (float)distance;
+        
+        int pixel_x = __float2int_rn(currentPin_x + t* (nextPin_x-currentPin_x));
+        int pixel_y = __float2int_rn(currentPin_y + t* (nextPin_y-currentPin_y));
     
-    //Round Nearest
-    int pixel_x = __float2int_rn(currentPin_x + t* (nextPin_x-currentPin_x));
-    int pixel_y = __float2int_rn(currentPin_y + t* (nextPin_y-currentPin_y));
-
-    int pixel = pixel_y * width + pixel_x;
-    int value = 0;
-    if (opacity < 1.0f)
-    {
-        value = image[pixel] * (1 - opacity);
-    }
-
-    image[pixel] = value;
+        int pixel = pixel_y * width + pixel_x;
+        int value = 0;
+        if (opacity < 1.0f){
+            value = image[pixel] * (1 - opacity);
+        }
+       image[pixel] = value;
     }
 }
 
@@ -148,121 +138,113 @@ __global__ void findNextPin_kernel (int currentPinId, unsigned char* image,
     }
     
     int tid = threadIdx.x;
-    //accesso coalescente/allineato
-    int nextPinId = blockIdx.x * blockDim.x + threadIdx.x;
+    int nextPinId = blockIdx.x * blockDim.x + threadIdx.x;     //accesso coalescente/allineato
 
     int bestPin = -1;
     shared_scores[tid] = 1e30f;
 
     if(nextPinId<m_numPins) { 
     
-
-    int diff = abs(nextPinId - currentPinId);
-    int dist = min(diff, m_numPins - diff);
-
-
-    if (!(dist < m_skippedNeighbors 
-        || m_adjacency[currentPinId * m_numPins + nextPinId])) 
-    {
-
-    unsigned int pixelChanged = 0;
-    float score = 0.0f;
-    int currentPin_x = d_pins[currentPinId].x;
-    int currentPin_y = d_pins[currentPinId].y;
-
-    int nextPin_x = d_pins[nextPinId].x; 
-    int nextPin_y = d_pins[nextPinId].y;
-
-    int diff_x = nextPin_x - currentPin_x;
-    int diff_y = nextPin_y - currentPin_y;
-
-    int distance = max(abs(diff_x), abs(diff_y));
-    int id = abs(diff_x) >= abs(diff_y) ? 0 : 1;
+        int diff = abs(nextPinId - currentPinId);
+        int dist = min(diff, m_numPins - diff);
     
-    int incremento_x = (diff_x>=0) ? 1 : -1;
-    int incremento_y = (diff_y>=0) ? 1 : -1;
     
-    int deltaMain = (id == 0) ? abs(diff_x) : abs(diff_y);
-    int deltaStep = (id == 0) ? abs(diff_y) : abs(diff_x);
-
-    int error = 2 * deltaStep - deltaMain;
-    int x = currentPin_x, y = currentPin_y;
-
-    //posso anche usare delta perchè è la distanza e mi dice il num di pixel
-    //while (nextPin_x != currentPin_xy[0] && nextPin_y != currentPin_xy[1] ) {
-    //for(int i=0; i<=distance; i++){
-    while(true){
-
-        int pixel= y * width + x;
-        //printf("current x %d \t y %d \n", currentPin_x, currentPin_y);
-        score += (float) image[pixel] + (255 - d_draft[pixel]);
-        //printf("Score parziale: %f\n", score);
-        ++pixelChanged;
-        
-        if (x == nextPin_x  && y == nextPin_y) break;
-
-        if (id==0 ) 
+        if (!(dist < m_skippedNeighbors 
+            || m_adjacency[currentPinId * m_numPins + nextPinId])) 
         {
-           x += incremento_x;
-        } else {
-          y += incremento_y;
-        }
-
-        
-        if (error > 0) {
-
-        if (id==0 ) 
-        {
-           y += incremento_y;
-        } else {
-          x += incremento_x;
-        }
-            //currentPin_xy[1 - id] += deltaStep; 
-            error -= 2 * deltaMain;             
-        }
-        error += 2 * deltaStep;
-    }
-    }
     
-    if (pixelChanged > 0)
-    {
-         shared_scores[tid]  = score/ (float) distance;
-         shared_pins[tid] = nextPinId;
-    }
-    }
-    else {
-        shared_scores[tid] = 1e30f;
-        shared_pins[tid] = -1;
-    }
-
-    __syncthreads();
-
-
-    #pragma unroll  //elimino così i brach
-    for (unsigned int s = blockDim.x/2; s > 32; s >>= 1) { 
-    if (tid < s)
-    {
-        if(shared_scores[tid] > shared_scores[tid + s])
-        {
-            shared_scores[tid] = shared_scores[tid + s];
-            shared_pins[tid] = shared_pins[tid+s];
-        }
-    }
+        unsigned int pixelChanged = 0;
+        float score = 0.0f;
+        int currentPin_x = d_pins[currentPinId].x;
+        int currentPin_y = d_pins[currentPinId].y;
+    
+        int nextPin_x = d_pins[nextPinId].x; 
+        int nextPin_y = d_pins[nextPinId].y;
+    
+        int diff_x = nextPin_x - currentPin_x;
+        int diff_y = nextPin_y - currentPin_y;
+    
+        int distance = max(abs(diff_x), abs(diff_y));
+        int id = abs(diff_x) >= abs(diff_y) ? 0 : 1;
         
-    __syncthreads();}
+        int incremento_x = (diff_x>=0) ? 1 : -1;
+        int incremento_y = (diff_y>=0) ? 1 : -1;
+        
+        int deltaMain = (id == 0) ? abs(diff_x) : abs(diff_y);
+        int deltaStep = (id == 0) ? abs(diff_y) : abs(diff_x);
+    
+        int error = 2 * deltaStep - deltaMain;
+        int x = currentPin_x, y = currentPin_y;
+    
+        //posso anche usare delta perchè è la distanza e mi dice il num di pixel
+        //while (nextPin_x != currentPin_xy[0] && nextPin_y != currentPin_xy[1] ) {
+        //for(int i=0; i<=distance; i++){
+        while(true){
+    
+            int pixel= y * width + x;
+            //printf("current x %d \t y %d \n", currentPin_x, currentPin_y);
+            score += (float) image[pixel] + (255 - d_draft[pixel]);
+            //printf("Score parziale: %f\n", score);
+            ++pixelChanged;
+            
+            if (x == nextPin_x  && y == nextPin_y) break;
+    
+            if (id==0 ) 
+            {
+               x += incremento_x;
+            } else {
+              y += incremento_y;
+            }
+    
+            
+            if (error > 0) {
+    
+            if (id==0 ) 
+            {
+               y += incremento_y;
+            } else {
+              x += incremento_x;
+            }
+                //currentPin_xy[1 - id] += deltaStep; 
+                error -= 2 * deltaMain;             
+            }
+            error += 2 * deltaStep;
+          }
+        }
+        
+        if (pixelChanged > 0)
+        {
+             shared_scores[tid]  = score/ (float) distance;
+             shared_pins[tid] = nextPinId;
+        }
+        }
+        else {
+            shared_scores[tid] = 1e30f;
+            shared_pins[tid] = -1;
+        }
 
-    //Warps follow a SIMD Structure and automatically perform synchronization. 
-    if (tid <32) warpReduce(shared_scores, shared_pins,tid);
+        __syncthreads();
 
-    //the bestScore ends up in shared_scores[0]
+        #pragma unroll  //elimino così i brach
+        for (unsigned int s = blockDim.x/2; s > 32; s >>= 1) { 
+        if (tid < s)
+        {
+            if(shared_scores[tid] > shared_scores[tid + s])
+            {
+                shared_scores[tid] = shared_scores[tid + s];
+                shared_pins[tid] = shared_pins[tid+s];
+            }
+        }
 
-    /*    int tid = threadIdx.x;
-    int nextPinId = blockIdx.x * blockDim.x + threadIdx.x;*/
-    if(tid==0){
-    d_scores[blockIdx.x] = shared_scores[0];
-    d_pins_fin[blockIdx.x] = shared_pins[0];
-    }
+        __syncthreads();}
 
+        if (tid <32) warpReduce(shared_scores, shared_pins,tid);
+    
+        //il bestScore finisce in shared_scores[0]
+        if(tid==0){
+            d_scores[blockIdx.x] = shared_scores[0];
+            d_pins_fin[blockIdx.x] = shared_pins[0];
+        }
 }
 
 //riduzione parallela
@@ -345,12 +327,6 @@ void StringArtist::windString()
         h_pins[i] = { (int)p[0], (int)p[1] };
     }
 
-    //dim3 blockSize(BLOCK_SIZE, BLOCK_SIZE);
-    //dim3 gridSize((m_numPins + blockSize.x - 1) / blockSize.x,
-     //             (m_numPins + blockSize.y - 1) / blockSize.y);
-    //int threadsPerBlock = 256;
-    //int blocksPerGrid = (m_numPins + threadsPerBlock - 1) / threadsPerBlock;
-
     //1D
     dim3 blockSize(256); 
     dim3 gridSize((m_numPins + blockSize.x - 1) / blockSize.x);  // Ceiling division
@@ -376,8 +352,6 @@ void StringArtist::windString()
         bestPin = -1;
         bestScore = std::numeric_limits<float>::infinity();
 
-        //CHECK(cudaMemcpy(d_draft, m_draft.getFirstPixelPointer(), img_size, cudaMemcpyHostToDevice));
-
        size_t smBytes = blockSize.x * (sizeof(float) + sizeof(int));
 
         findNextPin_kernel<<<gridSize, blockSize , smBytes>>>
@@ -394,45 +368,19 @@ void StringArtist::windString()
 
         size_t smBytes_r = numThreads * (sizeof(float) + sizeof(int));
 
-        //1 thread = 1 blocco di findNextPin_kernel
-        //N thread >= N blocchi usati da findNextPin_kernel
-        //mi basta 1blocco perchè tutti i risultati devono convergere nel thread[0] di quel blocco 
         bestResult_kernel<<<1, numThreads, smBytes_r>>>(d_scores, d_pins_fin, gridSize.x, d_finalResult);
         
         CHECK(cudaDeviceSynchronize());
 
         CHECK(cudaMemcpy(&h_finalResult, d_finalResult, sizeof(ScoreResult), cudaMemcpyDeviceToHost));
 
-        /*
-        for(int i=0; i<gridSize.x; i++)
-        {
-            if(h_scores[i] < bestScore)
-            {
-                bestScore=h_scores[i];
-                bestPin= (int)h_scores[gridSize.x + i];
-            }
-        }*/
-
-       /* for(int i=0; i<m_numPins; i++)
-        {
-            if(h_scores[i] < bestScore)
-            {
-                bestScore=h_scores[i];
-                bestPin= i;
-            }
-        }*/
-    
       bestPin = h_finalResult.pinIndex; bestScore =  h_finalResult.score;
        std::cout << "Iteration: " << m_iteration << " BestPin: " << bestPin << " Score: " << bestScore << " Threshold: " << m_threshold << std::endl;
       if (bestScore >= m_threshold || bestScore >= 1e29f || bestPin==-1) break;
         
         m_iteration++;
-        //std::cout << "Num "<< m_iteration  << std::endl ;
-
         bool val= true;
-        //std::cout << m_iteration << std::endl;
 
-        //num threads = line lenght 
         int currentPin_x = h_pins[currentPinId].x;
         int currentPin_y = h_pins[currentPinId].y;
         int nextPin_x = h_pins[bestPin].x; 
@@ -441,7 +389,6 @@ void StringArtist::windString()
         int diff_x = nextPin_x - currentPin_x;
         int diff_y = nextPin_y - currentPin_y;
 
-        //how many pixels the line occupies (thread = distance)
         int distance = max(abs(diff_x), abs(diff_y));
 
         dim3 gridSize_1((distance + blockSize.x ) / blockSize.x);  // Ceiling division
@@ -451,22 +398,11 @@ void StringArtist::windString()
 
         drawLine_kernel<<<gridSize_1, blockSize>>>
         ( d_canvas,  currentPinId,  bestPin,  CANVAS_LINE_OPACITY, d_pins, w);
-         
-        //drawLine(m_draft, currentPinId, bestPin, m_draftOpacity);
-        //drawLine(m_canvas, currentPinId, bestPin, CANVAS_LINE_OPACITY);
 
-
-        //invece di aggiornare d_adjacency con cudaMemcopy che prende tanto tempo 
-        //preferisco creare un piccolo kernel
+        //invece di aggiornare d_adjacency con cudaMemcopy che prende tanto tempo preferisco creare un piccolo kernel
         updateAdjacency_kernel<<<1, 1>>>(d_adjacency, currentPinId, bestPin, m_numPins);
        
-        //CHECK(cudaMemcpy(&d_adjacency[currentPinId * m_numPins + bestPin], &val, sizeof(bool), cudaMemcpyHostToDevice));
-        //CHECK(cudaMemcpy(&d_adjacency[bestPin * m_numPins + currentPinId], &val, sizeof(bool), cudaMemcpyHostToDevice));
-        
-        //m_adjacency[currentPinId][bestPin] = true;
-        //m_adjacency[bestPin][currentPinId] = true;
         currentPinId = bestPin;
-
     }
 
     CHECK(cudaMemcpy(m_canvas.getFirstPixelPointer(), d_canvas, img_size, cudaMemcpyDeviceToHost));
@@ -482,25 +418,10 @@ void StringArtist::windString()
     std::cout << "Tempo di esecuzione CPU: " << diff.count() << " secondi" << std::endl; 
 }
 
-
-
-/*
-void StringArtist::drawLine(StringArtImage& image, const size_t currentPinId, const size_t nextPinId, const float opacity)
-{
-    for (const Point2D& pixel : BresenhamLineIterator(image.getPin(currentPinId), image.getPin(nextPinId)))
-    {
-        int value = 0;
-        if (opacity < 1.0f)
-        {
-            value = image.getPixelValue(pixel) * (1 - opacity);
-        }
-        image.setPixelValue(pixel, value);
-    }
-}*/
-
 void StringArtist::saveImage(std::FILE* outputFile)
 {
     std::fprintf(outputFile, "P5\n%ld %ld\n255\n", m_canvas.size(), m_canvas.size());
     std::fwrite(m_canvas.getFirstPixelPointer(), m_canvas.size(), m_canvas.size(), outputFile);
     std::fclose(outputFile);
+
 }
