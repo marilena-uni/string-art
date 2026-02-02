@@ -56,14 +56,13 @@ struct alignas(8) PinPos {
 
 __global__ void findNextPin_kernel (int currentPinId, unsigned char* image, 
     unsigned char* d_draft, float* d_scores,int m_numPins , const PinPos* d_pins,
-    bool* m_adjacency, int m_skippedNeighbors, size_t width)
-{
+    bool* m_adjacency, int m_skippedNeighbors, size_t width){
+    
     if (blockIdx.x == 0 && threadIdx.x == 0) {
         printf("GPU: Kernel partito. currentPin: %d, numPins: %d\n", currentPinId, m_numPins);
         printf("pins %d %d \n", d_pins[0].x, d_pins[0].y);
          printf("pins %d %d \n", d_pins[1].x, d_pins[1].y);
-          printf("pins %d %d \n", d_pins[2].x, d_pins[2].y);
-    }
+          printf("pins %d %d \n", d_pins[2].x, d_pins[2].y); }
     
     int nextPinId = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -243,3 +242,4 @@ void StringArtist::saveImage(std::FILE* outputFile)
     std::fclose(outputFile);
 
 }
+
