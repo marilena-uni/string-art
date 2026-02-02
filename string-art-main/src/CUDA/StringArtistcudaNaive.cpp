@@ -53,84 +53,6 @@ StringArtist::StringArtistcudaNaive(const Image& image, unsigned int numPins, fl
 struct alignas(8) PinPos {
     int x, y;
 };
-/*
-__global__ void findNextPin_kernel (int currentPinId, unsigned char* image, 
-    unsigned char* d_draft, float* d_scores,int m_numPins , const PinPos* d_pins,
-    bool* m_adjacency, int m_skippedNeighbors, int width)
-{
-    if (blockIdx.x == 0 && threadIdx.x == 0) {
-        printf("GPU: Kernel partito. currentPin: %d, numPins: %d\n", currentPinId, m_numPins);
-    }
-    
-    int nextPinId = blockIdx.x * blockDim.x + threadIdx.x;
-
-    if(nextPinId>=m_numPins) return; 
-    d_scores[nextPinId] = 1e30f;
-
-    //int diff = nextPinId - currentPinId;
-    //int dist = min(diff % m_numPins , -diff % m_numPins);
-    int diff = abs(nextPinId - currentPinId);
-    int dist = min(diff, m_numPins - diff);
-
-
-    if (dist < m_skippedNeighbors 
-        || m_adjacency[currentPinId * m_numPins + nextPinId]) return;
-    
-
-    unsigned int pixelChanged = 0;
-    float score = 0.0f;
-    int currentPin_x = d_pins[currentPinId].x;
-    int currentPin_y = d_pins[currentPinId].y;
-
-    int nextPin_x = d_pins[nextPinId].x; 
-    int nextPin_y = d_pins[nextPinId].y;
-
-    int diff_x = nextPin_x - currentPin_x;
-    int diff_y = nextPin_y - currentPin_y;
-
-    int distance = max(abs(diff_x), abs(diff_y));
-    int delta[2] = {(diff_x), (diff_y)};
-    int id = abs(diff_x) >= abs(diff_y) ? 0 : 1;
-    
-    int increment[2] = {0, 0}; 
-    increment[id] = delta[id] >= 0 ? 1 : -1;
-    increment[1 - id] = delta[1 - id] >= 0 ? 1 : -1;
-
-    delta[2] = {delta[0]*increment[0], delta[1]*increment[1]};
-    
-    int error = 2 * delta[1 - id] - delta[id];
-    int currentPin_xy[2] = {currentPin_x, currentPin_y};
-
-    //posso anche usare delta perchè è la distanza e mi dice il num di pixel
-    //while (nextPin_x != currentPin_xy[0] && nextPin_y != currentPin_xy[1] ) {
-    //for(int i=0; i<=distance; i++){
-    while(true){
-
-        int pixel= currentPin_xy[1] * width + currentPin_xy[0];
-        
-        score += (float) image[pixel] + (255 - d_draft[pixel]);
-        //printf("Score parziale: %f\n", score);
-        ++pixelChanged;
-        
-        if (nextPin_x == currentPin_xy[0] && nextPin_y == currentPin_xy[1]) break;
-
-        currentPin_xy[id] += increment[id];
-
-        if (error > 0)
-        {   //  x = x + xi
-            currentPin_xy[1 - id] += increment[1 - id];
-            error -= 2 * delta[id]; //aggiorno errore
-        }
-        // per capire a pros pixel quanto mi sto allontanando dalla linea vera
-        error += 2 * delta[1 - id]; 
-    }
-   
-    if (pixelChanged > 0)
-    {
-            d_scores[nextPinId]  = score/ (float) distance;
-    }
-
-}*/
 
 __global__ void findNextPin_kernel (int currentPinId, unsigned char* image, 
     unsigned char* d_draft, float* d_scores,int m_numPins , const PinPos* d_pins,
@@ -148,15 +70,10 @@ __global__ void findNextPin_kernel (int currentPinId, unsigned char* image,
     if(nextPinId>=m_numPins) return; 
     d_scores[nextPinId] = 1e30f;
 
-    //int diff = nextPinId - currentPinId;
-    //int dist = min(diff % m_numPins , -diff % m_numPins);
     int diff = abs(nextPinId - currentPinId);
     int dist = min(diff, m_numPins - diff);
 
-
-    if (dist < m_skippedNeighbors 
-        || m_adjacency[currentPinId * m_numPins + nextPinId]) return;
-    
+    if (dist < m_skippedNeighbors || m_adjacency[currentPinId * m_numPins + nextPinId]) return;
 
     unsigned int pixelChanged = 0;
     float score = 0.0f;
@@ -170,34 +87,20 @@ __global__ void findNextPin_kernel (int currentPinId, unsigned char* image,
     int diff_y = nextPin_y - currentPin_y;
 
     int distance = max(abs(diff_x), abs(diff_y));
-    //int delta[2] = {(diff_x), (diff_y)};
     int id = abs(diff_x) >= abs(diff_y) ? 0 : 1;
-    
 
-    //int increment[2] = {0, 0}; 
-    //increment[id] = delta[id] >= 0 ? 1 : -1;
-    //increment[1 - id] = delta[1 - id] >= 0 ? 1 : -1;
     int incremento_x = (diff_x>=0) ? 1 : -1;
     int incremento_y = (diff_y>=0) ? 1 : -1;
-    //int increment[2] = {incremento_x, incremento_y};
-
-    //delta[2] = {delta[0]*increment[0], delta[1]*increment[1]};
+ 
     int deltaMain = (id == 0) ? abs(diff_x) : abs(diff_y);
     int deltaStep = (id == 0) ? abs(diff_y) : abs(diff_x);
 
     int error = 2 * deltaStep - deltaMain;
-    //int error = 2 * delta[1 - id] - delta[id];
-    //int currentPin_xy[2] = {currentPin_x, currentPin_y};
-  
-    //posso anche usare delta perchè è la distanza e mi dice il num di pixel
-    //while (nextPin_x != currentPin_xy[0] && nextPin_y != currentPin_xy[1] ) {
-    //for(int i=0; i<=distance; i++){
+
     while(true){
 
         int pixel= currentPin_y * width + currentPin_x;
-        //printf("current x %d \t y %d \n", currentPin_x, currentPin_y);
         score += (float) image[pixel] + (255 - d_draft[pixel]);
-        //printf("Score parziale: %f\n", score);
         ++pixelChanged;
         
         if (nextPin_x == currentPin_x && nextPin_y == currentPin_y) break;
@@ -208,23 +111,14 @@ __global__ void findNextPin_kernel (int currentPinId, unsigned char* image,
         } else {
           currentPin_y += incremento_y;
         }
-
-        /*if (error > 0)
-        {   //  x = x + xi
-            currentPin_xy[1 - id] += increment[1 - id];
-            error -= 2 * delta[id]; //aggiorno errore
-        }
-        // per capire a pros pixel quanto mi sto allontanando dalla linea vera
-        error += 2 * delta[1 - id]; */
+        
         if (error > 0) {
-
-        if (id==0 ) 
-        {
-           currentPin_y += incremento_y;
-        } else {
-          currentPin_x += incremento_x;
-        }
-            //currentPin_xy[1 - id] += deltaStep; 
+            if (id==0 ) 
+            {
+               currentPin_y += incremento_y;
+            } else {
+              currentPin_x += incremento_x;
+            }
             error -= 2 * deltaMain;             
         }
         error += 2 * deltaStep;
@@ -232,12 +126,10 @@ __global__ void findNextPin_kernel (int currentPinId, unsigned char* image,
    
     if (pixelChanged > 0)
     {
-            d_scores[nextPinId]  = score/ (float) distance;
+         d_scores[nextPinId]  = score/ (float) distance;
     }
 
 }
-
-
 
 void StringArtist::windString()
 {
@@ -267,9 +159,6 @@ void StringArtist::windString()
         h_pins[i] = { (int)p[0], (int)p[1] };
     }
 
-    //dim3 blockSize(BLOCK_SIZE, BLOCK_SIZE);
-    //dim3 gridSize((m_numPins + blockSize.x - 1) / blockSize.x,
-     //             (m_numPins + blockSize.y - 1) / blockSize.y);
     int threadsPerBlock = 256;
     int blocksPerGrid = (m_numPins + threadsPerBlock - 1) / threadsPerBlock;
 
@@ -281,7 +170,6 @@ void StringArtist::windString()
     float bestScore = std::numeric_limits<float>::infinity();
     int bestPin = -1;
     
-
     while (true)
     {
         size_t nextPinId;
@@ -301,7 +189,6 @@ void StringArtist::windString()
         }
 
         CHECK(cudaDeviceSynchronize());
-
         CHECK(cudaMemcpy(h_scores.data(), d_scores, m_numPins * sizeof(float), cudaMemcpyDeviceToHost));
 
         for(int i=0; i<m_numPins; i++)
@@ -317,19 +204,14 @@ void StringArtist::windString()
        if (bestScore >= m_threshold || bestScore >= 1e29f || bestPin==-1) break;
         
         m_iteration++;
-        //std::cout << "Num "<< m_iteration  << std::endl ;
 
         bool val= true;
-        //std::cout << m_iteration << std::endl;
         drawLine(m_draft, currentPinId, bestPin, m_draftOpacity);
         drawLine(m_canvas, currentPinId, bestPin, CANVAS_LINE_OPACITY);
 
         CHECK(cudaMemcpy(&d_adjacency[currentPinId * m_numPins + bestPin], &val, sizeof(bool), cudaMemcpyHostToDevice));
         CHECK(cudaMemcpy(&d_adjacency[bestPin * m_numPins + currentPinId], &val, sizeof(bool), cudaMemcpyHostToDevice));
-        //m_adjacency[currentPinId][bestPin] = true;
-        //m_adjacency[bestPin][currentPinId] = true;
         currentPinId = bestPin;
-
     }
   
     cudaFree(image); cudaFree(d_draft); cudaFree(d_adjacency); cudaFree(d_scores); cudaFree(d_pins);
@@ -340,10 +222,6 @@ void StringArtist::windString()
     std::cout << "Done after "<< m_iteration << " iterations" << std::endl;
     std::cout << "Tempo di esecuzione CPU: " << diff.count() << " secondi" << std::endl; 
 }
-
-
-
-
 
 void StringArtist::drawLine(StringArtImage& image, const size_t currentPinId, const size_t nextPinId, const float opacity)
 {
@@ -363,4 +241,5 @@ void StringArtist::saveImage(std::FILE* outputFile)
     std::fprintf(outputFile, "P5\n%ld %ld\n255\n", m_canvas.size(), m_canvas.size());
     std::fwrite(m_canvas.getFirstPixelPointer(), m_canvas.size(), m_canvas.size(), outputFile);
     std::fclose(outputFile);
+
 }
