@@ -45,4 +45,4 @@ convert output.pgm -colorspace Gray output.png
 
 ## Risultati CUDA
 
-![results](img/adaCuda3.png)
+![results](img/adaCuda3.png) ![results](img/risCUDAv3.png)
