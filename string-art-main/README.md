@@ -13,7 +13,7 @@ string_art input.pgm num_pins opacity threshold skipped_neighbors output.pgm
 
 dove
  - `input.pgm` è un'immagine graymap portatile "P5" binaria quadrata senza commenti (dimensione consigliata: `512x512`),
- - `num_pins` è il numero di pin (consigliata: 256`),
+ - `num_pins` è il numero di pin (consigliata: `256`),
  - `opacity` è il fattore di opacità (consigliata: `0.2`, un valore più alto significa un'immagine più luminosa),
  - `threshold` è la soglia che indica il punteggio sotto al quale prendere (consigliata: `255`),
  - `skipped_neighbors` è il numero di pin vicini che vanno ignorati (consigliato: `32`),
