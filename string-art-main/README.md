@@ -11,7 +11,7 @@ Per runnare lo script
 string_art input.pgm num_pins opacity threshold skipped_neighbors output.pgm
 ```
 
-where
+dove
  - `input.pgm` is a square binary “P5” portable graymap image without comments (suggested `512x512`),
  - `num_pins` is the number of nails (suggested: `256`),
  - `opacity` is the opacity factor, see below (suggested: `0.2`, higher value means brighter image),
