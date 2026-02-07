@@ -31,19 +31,18 @@ Per convertire immagine da pmg a png (e viceversa)
 convert output.pgm -colorspace Gray output.png
 ```
 
-
-## results C++
-
-![results](img/aec.png)
-
-## results SIMD
+## Risultati C++
 
 ![results](img/aec.png)
 
-## results Cuda Naive
+## Risultati SIMD
 
 ![results](img/aec.png)
 
-## results CUDA
+## Risultati Cuda Naive
+
+![results](img/aec.png)
+
+## Risultati CUDA
 
 ![results](img/aec.png)
