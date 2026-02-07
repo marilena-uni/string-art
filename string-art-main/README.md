@@ -33,7 +33,7 @@ convert output.pgm -colorspace Gray output.png
 
 ## Risultati C++
 
-![results](img/adas1.png)
+![results](img/ada_s1.png)
 
 ## Risultati SIMD
 
