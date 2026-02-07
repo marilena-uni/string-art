@@ -37,12 +37,12 @@ convert output.pgm -colorspace Gray output.png
 
 ## Risultati SIMD
 
-![results](img/aec.png)
+![results](img/ada_s1.png)
 
 ## Risultati Cuda Naive
 
-![results](img/aec.png)
+![results](img/adaNaive.png)
 
 ## Risultati CUDA
 
-![results](img/aec.png)
+![results](img/adaCuda3.png)
