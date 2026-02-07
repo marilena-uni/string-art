@@ -12,13 +12,13 @@ string_art input.pgm num_pins opacity threshold skipped_neighbors output.pgm
 ```
 
 dove
- - `input.pgm` is a square binary “P5” portable graymap image without comments (suggested `512x512`),
- - `num_pins` is the number of nails (suggested: `256`),
- - `opacity` is the opacity factor, see below (suggested: `0.2`, higher value means brighter image),
- - `threshold` is the opacity factor, see below (suggested: `255`, higher value means brighter image),
- - `skipped_neighbors` is how consecutive nails can be (suggested `32`),
- - `scale_factor` is the scaling factor of the output image (suggested: `8`),
- - `output` the output string-art image.
+ - `input.pgm` è un'immagine graymap portatile "P5" binaria quadrata senza commenti (dimensione consigliata: `512x512`),
+ - `num_pins` è il numero di pin (consigliata: 256`),
+ - `opacity` è il fattore di opacità (consigliata: `0.2`, un valore più alto significa un'immagine più luminosa),
+ - `threshold` è la soglia che indica il punteggio sotto al quale prendere (consigliata: `255`),
+ - `skipped_neighbors` è il numero di pin vicini che vanno ignorati (consigliato: `32`),
+ - `scale_factor` è il fattore di scala dell'immagine output (consigliato: `8`),
+ - `output` immagine di output.
 
 Esempio
 
