@@ -141,8 +141,6 @@ __global__ void findNextPin_kernel (int currentPinId, unsigned char* image,
 
       if(nextPinId>=m_numPins) return;
 
-    int bestPin = -1;
-    
     if (tid == 0) d_scores[nextPinId] = 1e30f;
     __syncthreads();
 
@@ -153,9 +151,6 @@ __global__ void findNextPin_kernel (int currentPinId, unsigned char* image,
 
     if ((dist < m_skippedNeighbors 
         || m_adjacency[currentPinId * m_numPins + nextPinId]))  return;
-
-
-    unsigned int pixelChanged = 0;
     
     float currentPin_x = (float)d_pins[currentPinId].x;
     float currentPin_y = (float)d_pins[currentPinId].y;
@@ -165,7 +160,6 @@ __global__ void findNextPin_kernel (int currentPinId, unsigned char* image,
 
     float diff_x = nextPin_x - currentPin_x;
     float diff_y = nextPin_y - currentPin_y;
-    float score = 0.0f;
     int distance =(int) max(abs(diff_x), abs(diff_y));
     
     //se no avrei 128 threads che contemporanema provano a mettere s_score=0
@@ -305,8 +299,6 @@ void StringArtist::windString()
 
     while (true)
     {
-        
-        size_t nextPinId;
         bestPin = -1;
         bestScore = std::numeric_limits<float>::infinity();
 
@@ -333,7 +325,6 @@ void StringArtist::windString()
         m_iteration++;
         //std::cout << "Num "<< m_iteration  << std::endl ;
 
-        bool val= true;
         //std::cout << m_iteration << std::endl;
 
         //num threads = line lenght 
@@ -382,4 +373,5 @@ void StringArtist::saveImage(std::FILE* outputFile)
     std::fprintf(outputFile, "P5\n%ld %ld\n255\n", m_canvas.size(), m_canvas.size());
     std::fwrite(m_canvas.getFirstPixelPointer(), m_canvas.size(), m_canvas.size(), outputFile);
     std::fclose(outputFile);
+
 }
