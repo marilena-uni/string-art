@@ -4,7 +4,7 @@ La String-Art è una tecnica di disegno che permette di ottenere immagini totalm
 Il problema è stato scelto in quanto permetteva un ampio margine di miglioramento nel tempo di esecuzione; questo è dovuto all'algoritmo che, per ogni potenziale linea, deve determinare quali pixel attraversa. Fare questa iterazione sulla CPU, in maniera sequenziale, richiede molto tempo. 
 
 # Implementazioni
-Attraverso l'suo della Shared Memory, un migliore utilizzo degli Streaming Multiprocessors e l'uso della Texture memory siamo riuscite a incrementare l'occupancy e ad ottenere uno speed-up del 7x.
+Attraverso l'uso della Shared Memory, un migliore utilizzo degli Streaming Multiprocessors e l'uso della Texture memory siamo riuscite a incrementare l'occupancy e ad ottenere uno speed-up del 7x.
 
 ## Usage
 
